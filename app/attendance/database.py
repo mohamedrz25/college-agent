@@ -63,3 +63,149 @@ def init_db():
 
     db.commit()
     db.close()
+
+def add_class(subject, day_of_week, start_time, end_time=None):
+    db = get_db()
+
+    db.execute(
+        """
+        INSERT INTO timetable
+        (subject, day_of_week, start_time, end_time)
+        VALUES (?, ?, ?, ?)
+        """,
+        (subject, day_of_week, start_time, end_time)
+    )
+
+    db.commit()
+    db.close()
+
+
+def get_classes():
+    db = get_db()
+
+    rows = db.execute(
+        """
+        SELECT *
+        FROM timetable
+        WHERE active = 1
+        ORDER BY day_of_week, start_time
+        """
+    ).fetchall()
+
+    db.close()
+
+    return rows
+
+
+def get_today_classes(day):
+    db = get_db()
+
+    rows = db.execute(
+        """
+        SELECT *
+        FROM timetable
+        WHERE day_of_week = ?
+        AND active = 1
+        ORDER BY start_time
+        """,
+        (day,)
+    ).fetchall()
+
+    db.close()
+
+    return rows
+
+
+def mark_attendance(class_id, class_date, status, marked_at):
+    db = get_db()
+
+    db.execute(
+        """
+        INSERT INTO attendance
+        (class_id, class_date, status, marked_at)
+        VALUES (?, ?, ?, ?)
+
+        ON CONFLICT(class_id, class_date)
+        DO UPDATE SET
+            status = excluded.status,
+            marked_at = excluded.marked_at
+        """,
+        (
+            class_id,
+            class_date,
+            status,
+            marked_at
+        )
+    )
+
+    db.commit()
+    db.close()
+
+
+def get_attendance():
+    db = get_db()
+
+    rows = db.execute(
+        """
+        SELECT
+            attendance.*,
+            timetable.subject,
+            timetable.day_of_week,
+            timetable.start_time
+        FROM attendance
+        JOIN timetable
+        ON attendance.class_id = timetable.id
+        ORDER BY class_date DESC
+        """
+    ).fetchall()
+
+    db.close()
+
+    return rows
+
+
+def get_subject_statistics():
+    db = get_db()
+
+    rows = db.execute(
+        """
+        SELECT
+            timetable.subject,
+            COUNT(attendance.id) AS total_classes,
+            SUM(
+                CASE
+                    WHEN attendance.status = 'present'
+                    THEN 1
+                    ELSE 0
+                END
+            ) AS present_classes
+        FROM attendance
+        JOIN timetable
+        ON attendance.class_id = timetable.id
+        GROUP BY timetable.subject
+        """
+    ).fetchall()
+
+    db.close()
+
+    results = []
+
+    for row in rows:
+        total = row["total_classes"]
+        present = row["present_classes"] or 0
+
+        percentage = (
+            (present / total) * 100
+            if total > 0
+            else 0
+        )
+
+        results.append({
+            "subject": row["subject"],
+            "total": total,
+            "present": present,
+            "percentage": round(percentage, 2)
+        })
+
+    return results
+    
